@@ -234,7 +234,7 @@ async function generateWithOpenAI(input: ReportInput) {
     store: false,
     instructions: chartPatternPrompt,
     input: JSON.stringify(input.chart),
-    //reasoning: { effort: "medium" },
+    reasoning: { effort: "medium" },
     text: {
       verbosity: "low",
       format: zodTextFormat(chartPatternModelSchema, "chart_patterns"),
@@ -251,7 +251,7 @@ async function generateWithOpenAI(input: ReportInput) {
       patrones_astrologicos: chartPatterns,
       respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
     }),
-    //reasoning: { effort: "medium" },
+    reasoning: { effort: "medium" },
     text: {
       verbosity: "low",
       format: zodTextFormat(manifestationModelSchema, "current_manifestation"),
@@ -271,7 +271,7 @@ async function generateWithOpenAI(input: ReportInput) {
       patrones_astrologicos: chartPatterns,
       manifestacion_actual: manifestation,
     }),
-    //reasoning: { effort: "medium" },
+    reasoning: { effort: "medium" },
     text: {
       verbosity: "medium",
       format: zodTextFormat(modelReportSchema, "personal_report"),
@@ -283,7 +283,7 @@ async function generateWithOpenAI(input: ReportInput) {
 }
 
 export async function generatePersonalReport(input: ReportInput): Promise<PersonalReport> {
-  const provider = (process.env.REPORT_PROVIDER || "rules").toLowerCase();
+  const provider = (process.env.REPORT_PROVIDER || "openai").toLowerCase();
   if (provider === "rules") {
     return generateRuleBasedReport(input);
   }
