@@ -227,7 +227,7 @@ async function generateWithOpenAI(input: ReportInput) {
   if (!apiKey) throw new Error("OPENAI_API_KEY no está configurada.");
 
   const client = new OpenAI({ apiKey });
-  const model = process.env.OPENAI_MODEL || "gpt-5.5-pro-2026-04-23";
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
   const patternResponse = await client.responses.parse({
     model,
@@ -235,7 +235,7 @@ async function generateWithOpenAI(input: ReportInput) {
     instructions: chartPatternPrompt,
     input: JSON.stringify(input.chart),
     text: {
-      verbosity: "low",
+      verbosity: "medium",
       format: zodTextFormat(chartPatternModelSchema, "chart_patterns"),
     },
   });
@@ -251,7 +251,7 @@ async function generateWithOpenAI(input: ReportInput) {
       respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
     }),
     text: {
-      verbosity: "low",
+      verbosity: "medium",
       format: zodTextFormat(manifestationModelSchema, "current_manifestation"),
     },
   });
