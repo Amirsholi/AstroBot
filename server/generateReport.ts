@@ -234,6 +234,7 @@ async function generateWithOpenAI(input: ReportInput) {
     store: false,
     instructions: chartPatternPrompt,
     input: JSON.stringify(input.chart),
+    reasoning: { effort: "medium" },
     text: {
       verbosity: "medium",
       format: zodTextFormat(chartPatternModelSchema, "chart_patterns"),
@@ -250,6 +251,7 @@ async function generateWithOpenAI(input: ReportInput) {
       patrones_astrologicos: chartPatterns,
       respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
     }),
+    reasoning: { effort: "medium" },
     text: {
       verbosity: "medium",
       format: zodTextFormat(manifestationModelSchema, "current_manifestation"),
@@ -269,6 +271,7 @@ async function generateWithOpenAI(input: ReportInput) {
       patrones_astrologicos: chartPatterns,
       manifestacion_actual: manifestation,
     }),
+    reasoning: { effort: "medium" },
     text: {
       verbosity: "medium",
       format: zodTextFormat(modelReportSchema, "personal_report"),

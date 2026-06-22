@@ -6,7 +6,7 @@
   "functions": {
     "api/index.ts": {
       "includeFiles": "node_modules/sweph/prebuilds/linux-x64/**",
-      "maxDuration": 60
+      "maxDuration": 180
     }
   },
   "rewrites": [
