@@ -365,7 +365,7 @@ async function generateWithOpenAI(input: ReportInput) {
 }
 
 export async function generatePersonalReport(input: ReportInput): Promise<PersonalReport> {
-  const provider = (process.env.REPORT_PROVIDER || "openai").toLowerCase();
+  const provider = (process.env.REPORT_PROVIDER || "rules").toLowerCase();
   if (provider === "rules") {
     return generateRuleBasedReport(input);
   }
@@ -382,6 +382,9 @@ export async function generatePersonalReport(input: ReportInput): Promise<Person
   }
   if (provider !== "openai") {
     throw new Error(`REPORT_PROVIDER no soportado: ${provider}`);
+  }
+  if (process.env.ENABLE_PAID_AI !== "true") {
+    throw new Error("La generación paga está deshabilitada.");
   }
 
   return generateWithOpenAI(input);
