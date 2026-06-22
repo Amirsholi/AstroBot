@@ -4,7 +4,10 @@ import type { Answer, BirthData, NatalChart, PersonalReport, PlaceSuggestion } f
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error ?? "No pudimos completar la solicitud.");
+    const fallbackMessage = response.status === 504
+      ? "La lectura tardó más de lo esperado. Intenta nuevamente."
+      : "No pudimos completar la solicitud.";
+    throw new Error(payload?.error ?? fallbackMessage);
   }
   return response.json() as Promise<T>;
 }

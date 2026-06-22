@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
-import { chartPatternPrompt, manifestationPrompt, reportPrompt } from "./prompt.js";
+import { chartPatternPrompt, contextualizedReportPrompt, manifestationPrompt, reportPrompt } from "./prompt.js";
 import { generateRuleBasedReport } from "./fallbackReport.js";
 
 const modelReportSchema = z.object({
@@ -61,6 +61,11 @@ const manifestationModelSchema = z.object({
   active: z.array(manifestationItemSchema),
   tension: z.array(manifestationItemSchema),
   notObserved: z.array(z.string()),
+});
+
+const contextualizedReportSchema = z.object({
+  manifestation: manifestationModelSchema,
+  report: modelReportSchema,
 });
 
 const chartPatternJsonSchema = {
@@ -243,10 +248,10 @@ async function generateWithOpenAI(input: ReportInput) {
   if (!patternResponse.output_parsed) throw new Error("OpenAI no pudo extraer los patrones de la carta natal.");
   const chartPatterns = chartPatternModelSchema.parse(patternResponse.output_parsed);
 
-  const manifestationResponse = await client.responses.parse({
+  const finalResponse = await client.responses.parse({
     model,
     store: false,
-    instructions: manifestationPrompt,
+    instructions: contextualizedReportPrompt,
     input: JSON.stringify({
       patrones_astrologicos: chartPatterns,
       respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
@@ -254,32 +259,14 @@ async function generateWithOpenAI(input: ReportInput) {
     reasoning: { effort: "medium" },
     text: {
       verbosity: "medium",
-      format: zodTextFormat(manifestationModelSchema, "current_manifestation"),
+      format: zodTextFormat(contextualizedReportSchema, "contextualized_report"),
     },
   });
-  if (!manifestationResponse.output_parsed) {
-    throw new Error("OpenAI no pudo contrastar la carta y las respuestas.");
-  }
-  const manifestation = manifestationModelSchema.parse(manifestationResponse.output_parsed);
-  validateManifestation(chartPatterns, manifestation);
+  if (!finalResponse.output_parsed) throw new Error("OpenAI no devolvió un informe válido.");
+  const finalResult = contextualizedReportSchema.parse(finalResponse.output_parsed);
+  validateManifestation(chartPatterns, finalResult.manifestation);
 
-  const reportResponse = await client.responses.parse({
-    model,
-    store: false,
-    instructions: reportPrompt,
-    input: JSON.stringify({
-      patrones_astrologicos: chartPatterns,
-      manifestacion_actual: manifestation,
-    }),
-    reasoning: { effort: "medium" },
-    text: {
-      verbosity: "medium",
-      format: zodTextFormat(modelReportSchema, "personal_report"),
-    },
-  });
-  if (!reportResponse.output_parsed) throw new Error("OpenAI no devolvió un informe válido.");
-
-  return reportSchema.parse({ ...reportResponse.output_parsed, disclaimer });
+  return reportSchema.parse({ ...finalResult.report, disclaimer });
 }
 
 export async function generatePersonalReport(input: ReportInput): Promise<PersonalReport> {
