@@ -2,14 +2,14 @@ import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
-import { chartSynthesisPrompt, reportPrompt } from "./prompt.js";
+import { chartPatternPrompt, manifestationPrompt, reportPrompt } from "./prompt.js";
 import { generateRuleBasedReport } from "./fallbackReport.js";
 
 const modelReportSchema = z.object({
-  title: z.string(),
-  reading: z.string(),
-  reflection: z.string(),
-  question: z.string(),
+  title: z.string().min(4),
+  reading: z.string().min(1200),
+  reflection: z.string().min(20),
+  question: z.string().min(10),
 });
 
 export const reportSchema = modelReportSchema.extend({
@@ -41,60 +41,171 @@ const reportJsonSchema = {
   required: ["title", "reading", "reflection", "question"],
 };
 
-const chartSynthesisJsonSchema = {
+const chartPatternModelSchema = z.object({
+  patterns: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    evidence: z.array(z.string()),
+    mechanism: z.string(),
+    weight: z.number().int().min(1).max(5),
+  })).length(5),
+});
+
+const manifestationItemSchema = z.object({
+  patternId: z.string(),
+  manifestation: z.string(),
+});
+
+const manifestationModelSchema = z.object({
+  confirmed: z.array(manifestationItemSchema),
+  active: z.array(manifestationItemSchema),
+  tension: z.array(manifestationItemSchema),
+  notObserved: z.array(z.string()),
+});
+
+const chartPatternJsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    dominantPatterns: {
+    patterns: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
-          dynamic: { type: "string" },
-          evidence: { type: "string" },
-          need: { type: "string" },
-          tension: { type: "string" },
-          resource: { type: "string" },
-          everydayExpression: { type: "string" },
+          id: { type: "string" },
+          name: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } },
+          mechanism: { type: "string" },
+          weight: { type: "integer", minimum: 1, maximum: 5 },
         },
-        required: ["dynamic", "evidence", "need", "tension", "resource", "everydayExpression"],
+        required: ["id", "name", "evidence", "mechanism", "weight"],
       },
     },
-    centralTension: { type: "string" },
-    underestimatedResource: { type: "string" },
-    visibleVersusNeeded: { type: "string" },
   },
-  required: ["dominantPatterns", "centralTension", "underestimatedResource", "visibleVersusNeeded"],
+  required: ["patterns"],
+};
+
+const manifestationJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    confirmed: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { patternId: { type: "string" }, manifestation: { type: "string" } },
+        required: ["patternId", "manifestation"],
+      },
+    },
+    active: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { patternId: { type: "string" }, manifestation: { type: "string" } },
+        required: ["patternId", "manifestation"],
+      },
+    },
+    tension: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { patternId: { type: "string" }, manifestation: { type: "string" } },
+        required: ["patternId", "manifestation"],
+      },
+    },
+    notObserved: { type: "array", items: { type: "string" } },
+  },
+  required: ["confirmed", "active", "tension", "notObserved"],
 };
 
 const disclaimer = "Lectura simbólica para la reflexión personal. No constituye orientación médica ni psicológica.";
+
+function validateManifestation(
+  chartPatterns: z.infer<typeof chartPatternModelSchema>,
+  manifestation: z.infer<typeof manifestationModelSchema>,
+) {
+  const patternIds = new Set(chartPatterns.patterns.map((pattern) => pattern.id));
+  const observed = [...manifestation.confirmed, ...manifestation.active, ...manifestation.tension];
+  const referencedIds = [...observed.map((item) => item.patternId), ...manifestation.notObserved];
+
+  if (observed.length > 3) {
+    throw new Error("El contraste dio demasiado peso al cuestionario.");
+  }
+  if (referencedIds.some((id) => !patternIds.has(id))) {
+    throw new Error("El contraste introdujo un tema que no existe en la carta.");
+  }
+  if (new Set(referencedIds).size !== referencedIds.length) {
+    throw new Error("El contraste clasificó un patrón más de una vez.");
+  }
+}
+
+function upstreamStatus(error: unknown) {
+  if (typeof error !== "object" || error === null) return 0;
+  if ("status" in error && typeof error.status === "number") return error.status;
+  if ("error" in error && typeof error.error === "object" && error.error !== null && "code" in error.error) {
+    return Number(error.error.code) || 0;
+  }
+  return 0;
+}
+
+async function retryTemporaryFailure<T>(operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (upstreamStatus(error) !== 503) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    return operation();
+  }
+}
 
 async function generateWithGemini(input: ReportInput) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY no está configurada.");
 
   const client = new GoogleGenAI({ apiKey });
-  const synthesisResponse = await client.models.generateContent({
+  const patternResponse = await retryTemporaryFailure(() => client.models.generateContent({
     model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
     contents: JSON.stringify(input.chart),
     config: {
-      systemInstruction: chartSynthesisPrompt,
+      systemInstruction: chartPatternPrompt,
       responseMimeType: "application/json",
-      responseJsonSchema: chartSynthesisJsonSchema,
+      responseJsonSchema: chartPatternJsonSchema,
       maxOutputTokens: 4096,
-      temperature: 0.35,
+      temperature: 0.25,
       thinkingConfig: { thinkingBudget: 1024 },
     },
-  });
-  if (!synthesisResponse.text) throw new Error("Gemini no pudo sintetizar la carta natal.");
+  }));
+  if (!patternResponse.text) throw new Error("Gemini no pudo extraer los patrones de la carta natal.");
+  const chartPatterns = chartPatternModelSchema.parse(JSON.parse(patternResponse.text));
 
-  const chartSynthesis = JSON.parse(synthesisResponse.text) as unknown;
+  const manifestationResponse = await retryTemporaryFailure(() => client.models.generateContent({
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    contents: JSON.stringify({
+      patrones_astrologicos: chartPatterns,
+      respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
+    }),
+    config: {
+      systemInstruction: manifestationPrompt,
+      responseMimeType: "application/json",
+      responseJsonSchema: manifestationJsonSchema,
+      maxOutputTokens: 3072,
+      temperature: 0.2,
+      thinkingConfig: { thinkingBudget: 512 },
+    },
+  }));
+  if (!manifestationResponse.text) throw new Error("Gemini no pudo contrastar la carta y las respuestas.");
+  const manifestation = manifestationModelSchema.parse(JSON.parse(manifestationResponse.text));
+  validateManifestation(chartPatterns, manifestation);
+
   const modelInput = {
-    sintesis_astrologica: chartSynthesis,
-    respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
+    patrones_astrologicos: chartPatterns,
+    manifestacion_actual: manifestation,
   };
-  const response = await client.models.generateContent({
+  const response = await retryTemporaryFailure(() => client.models.generateContent({
     model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
     contents: JSON.stringify(modelInput),
     config: {
@@ -105,10 +216,70 @@ async function generateWithGemini(input: ReportInput) {
       temperature: 0.68,
       thinkingConfig: { thinkingBudget: 1024 },
     },
-  });
+  }));
 
   if (!response.text) throw new Error("Gemini no devolvió un informe válido.");
   return reportSchema.parse({ ...JSON.parse(response.text), disclaimer });
+}
+
+async function generateWithOpenAI(input: ReportInput) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY no está configurada.");
+
+  const client = new OpenAI({ apiKey });
+  const model = process.env.OPENAI_MODEL || "gpt-5.5-pro-2026-04-23";
+
+  const patternResponse = await client.responses.parse({
+    model,
+    store: false,
+    instructions: chartPatternPrompt,
+    input: JSON.stringify(input.chart),
+    reasoning: { effort: "medium" },
+    text: {
+      verbosity: "low",
+      format: zodTextFormat(chartPatternModelSchema, "chart_patterns"),
+    },
+  });
+  if (!patternResponse.output_parsed) throw new Error("OpenAI no pudo extraer los patrones de la carta natal.");
+  const chartPatterns = chartPatternModelSchema.parse(patternResponse.output_parsed);
+
+  const manifestationResponse = await client.responses.parse({
+    model,
+    store: false,
+    instructions: manifestationPrompt,
+    input: JSON.stringify({
+      patrones_astrologicos: chartPatterns,
+      respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
+    }),
+    reasoning: { effort: "medium" },
+    text: {
+      verbosity: "low",
+      format: zodTextFormat(manifestationModelSchema, "current_manifestation"),
+    },
+  });
+  if (!manifestationResponse.output_parsed) {
+    throw new Error("OpenAI no pudo contrastar la carta y las respuestas.");
+  }
+  const manifestation = manifestationModelSchema.parse(manifestationResponse.output_parsed);
+  validateManifestation(chartPatterns, manifestation);
+
+  const reportResponse = await client.responses.parse({
+    model,
+    store: false,
+    instructions: reportPrompt,
+    input: JSON.stringify({
+      patrones_astrologicos: chartPatterns,
+      manifestacion_actual: manifestation,
+    }),
+    reasoning: { effort: "medium" },
+    text: {
+      verbosity: "medium",
+      format: zodTextFormat(modelReportSchema, "personal_report"),
+    },
+  });
+  if (!reportResponse.output_parsed) throw new Error("OpenAI no devolvió un informe válido.");
+
+  return reportSchema.parse({ ...reportResponse.output_parsed, disclaimer });
 }
 
 export async function generatePersonalReport(input: ReportInput): Promise<PersonalReport> {
@@ -131,29 +302,5 @@ export async function generatePersonalReport(input: ReportInput): Promise<Person
     throw new Error(`REPORT_PROVIDER no soportado: ${provider}`);
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY no está configurada.");
-  }
-
-  const client = new OpenAI({ apiKey });
-  const response = await client.responses.parse({
-    model: process.env.OPENAI_MODEL || "gpt-5.5",
-    store: false,
-    instructions: reportPrompt,
-    input: JSON.stringify(input),
-    reasoning: { effort: "medium" },
-    text: {
-      verbosity: "medium",
-      format: zodTextFormat(modelReportSchema, "personal_report"),
-    },
-  });
-
-  if (!response.output_parsed) {
-    throw new Error("OpenAI no devolvió un informe válido.");
-  }
-  return reportSchema.parse({
-    ...response.output_parsed,
-    disclaimer,
-  });
+  return generateWithOpenAI(input);
 }
