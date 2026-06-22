@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.npm-cache/
+.design-qa/
+.design-reference/
+design-qa.md
+.env
+*.local
+npm-debug.log*
+
+.vercel
