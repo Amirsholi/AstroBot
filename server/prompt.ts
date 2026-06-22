@@ -85,7 +85,7 @@ Evitar:
 
 Longitud:
 
-El campo de lectura debe contener entre 650 y 850 palabras.
+El campo de lectura debe contener entre 400 y 650 palabras.
 
 Título:
 
