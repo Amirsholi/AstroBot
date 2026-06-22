@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
-import { reportPrompt } from "./prompt.js";
+import { chartSynthesisPrompt, reportPrompt } from "./prompt.js";
 import { generateRuleBasedReport } from "./fallbackReport.js";
 
 const modelReportSchema = z.object({
@@ -41,6 +41,33 @@ const reportJsonSchema = {
   required: ["title", "reading", "reflection", "question"],
 };
 
+const chartSynthesisJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    dominantPatterns: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          dynamic: { type: "string" },
+          evidence: { type: "string" },
+          need: { type: "string" },
+          tension: { type: "string" },
+          resource: { type: "string" },
+          everydayExpression: { type: "string" },
+        },
+        required: ["dynamic", "evidence", "need", "tension", "resource", "everydayExpression"],
+      },
+    },
+    centralTension: { type: "string" },
+    underestimatedResource: { type: "string" },
+    visibleVersusNeeded: { type: "string" },
+  },
+  required: ["dominantPatterns", "centralTension", "underestimatedResource", "visibleVersusNeeded"],
+};
+
 const disclaimer = "Lectura simbólica para la reflexión personal. No constituye orientación médica ni psicológica.";
 
 async function generateWithGemini(input: ReportInput) {
@@ -48,16 +75,35 @@ async function generateWithGemini(input: ReportInput) {
   if (!apiKey) throw new Error("GEMINI_API_KEY no está configurada.");
 
   const client = new GoogleGenAI({ apiKey });
+  const synthesisResponse = await client.models.generateContent({
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    contents: JSON.stringify(input.chart),
+    config: {
+      systemInstruction: chartSynthesisPrompt,
+      responseMimeType: "application/json",
+      responseJsonSchema: chartSynthesisJsonSchema,
+      maxOutputTokens: 4096,
+      temperature: 0.35,
+      thinkingConfig: { thinkingBudget: 1024 },
+    },
+  });
+  if (!synthesisResponse.text) throw new Error("Gemini no pudo sintetizar la carta natal.");
+
+  const chartSynthesis = JSON.parse(synthesisResponse.text) as unknown;
+  const modelInput = {
+    sintesis_astrologica: chartSynthesis,
+    respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
+  };
   const response = await client.models.generateContent({
     model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    contents: JSON.stringify(input),
+    contents: JSON.stringify(modelInput),
     config: {
       systemInstruction: reportPrompt,
       responseMimeType: "application/json",
       responseJsonSchema: reportJsonSchema,
       maxOutputTokens: 8192,
-      temperature: 0.8,
-      thinkingConfig: { thinkingBudget: 0 },
+      temperature: 0.68,
+      thinkingConfig: { thinkingBudget: 1024 },
     },
   });
 
