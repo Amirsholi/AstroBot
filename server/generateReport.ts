@@ -345,6 +345,7 @@ async function generateWithOpenAI(input: ReportInput) {
   const finalResponse = await client.responses.parse({
     model,
     store: false,
+    max_output_tokens: 5000,
     instructions: contextualizedReportPrompt,
     input: JSON.stringify({
       patrones_astrologicos: chartPatterns,
