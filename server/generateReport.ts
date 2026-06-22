@@ -129,6 +129,112 @@ const manifestationJsonSchema = {
 
 const disclaimer = "Lectura simbólica para la reflexión personal. No constituye orientación médica ni psicológica.";
 
+const planetFunctions: Record<string, string> = {
+  Sol: "dirección consciente",
+  Luna: "regulación emocional",
+  Mercurio: "pensamiento y palabra",
+  Venus: "vínculo y valoración",
+  Marte: "deseo y acción",
+  Júpiter: "expansión y significado",
+  Saturno: "estructura y límite",
+  Urano: "cambio e independencia",
+  Neptuno: "sensibilidad e imaginación",
+  Plutón: "intensidad y transformación",
+};
+
+const houseAreas: Record<number, string> = {
+  1: "presencia e iniciativa", 2: "recursos y valores", 3: "lenguaje y aprendizaje",
+  4: "intimidad y pertenencia", 5: "creatividad y expresión", 6: "hábitos y trabajo cotidiano",
+  7: "vínculos y acuerdos", 8: "intimidad profunda y transformación", 9: "visión y creencias",
+  10: "dirección pública y vocación", 11: "comunidad y futuro", 12: "vida interior y cierres",
+};
+
+type ParsedPosition = { name: string; sign: string; house: number | null };
+type ParsedAspect = { from: string; to: string; type: string; orb: number };
+
+function parsePosition(value: unknown): ParsedPosition | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if (typeof item.name !== "string" || typeof item.sign !== "string") return null;
+  return { name: item.name, sign: item.sign, house: typeof item.house === "number" ? item.house : null };
+}
+
+function parseAspect(value: unknown): ParsedAspect | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if (typeof item.from !== "string" || typeof item.to !== "string" || typeof item.type !== "string" || typeof item.orb !== "number") return null;
+  return { from: item.from, to: item.to, type: item.type, orb: item.orb };
+}
+
+function positionEvidence(position: ParsedPosition) {
+  return `${position.name} en ${position.sign}${position.house ? `, casa ${position.house}` : ""}`;
+}
+
+function buildChartPatterns(chart: ReportInput["chart"]) {
+  const positions = chart.planets.map(parsePosition).filter((item): item is ParsedPosition => Boolean(item));
+  const byName = new Map(positions.map((position) => [position.name, position]));
+  const relevance = (name: string) => name === "Sol" || name === "Luna" ? 4 : ["Mercurio", "Venus", "Marte"].includes(name) ? 3 : 1;
+  const aspectDynamics: Record<string, string> = {
+    conjunción: "se fusiona con",
+    oposición: "oscila frente a",
+    cuadratura: "entra en fricción con",
+    trígono: "fluye junto a",
+    sextil: "encuentra una vía de cooperación con",
+  };
+
+  const aspects = chart.aspects.map(parseAspect).filter((item): item is ParsedAspect => Boolean(item))
+    .sort((left, right) => {
+      const score = (aspect: ParsedAspect) => relevance(aspect.from) + relevance(aspect.to) + Math.max(0, 8 - aspect.orb);
+      return score(right) - score(left);
+    })
+    .slice(0, 4);
+
+  const patterns = aspects.flatMap((aspect, index) => {
+    const from = byName.get(aspect.from);
+    const to = byName.get(aspect.to);
+    if (!from || !to) return [];
+    const fromFunction = planetFunctions[from.name] ?? from.name;
+    const toFunction = planetFunctions[to.name] ?? to.name;
+    const dynamic = aspectDynamics[aspect.type] ?? "se relaciona con";
+    const fromArea = from.house ? houseAreas[from.house] : null;
+    const toArea = to.house ? houseAreas[to.house] : null;
+    return [{
+      id: `aspect-${index + 1}`,
+      name: `${fromFunction} ${dynamic} ${toFunction}`,
+      evidence: [positionEvidence(from), positionEvidence(to), `${aspect.type} ${from.name}-${to.name}, orbe ${aspect.orb}°`],
+      mechanism: `La ${fromFunction}, expresada desde ${from.sign}${fromArea ? ` en ${fromArea}` : ""}, ${dynamic} la ${toFunction}, expresada desde ${to.sign}${toArea ? ` en ${toArea}` : ""}.`,
+      weight: Math.max(2, 5 - index),
+    }];
+  });
+
+  const sun = byName.get("Sol");
+  const moon = byName.get("Luna");
+  const ascendant = parsePosition(chart.ascendant);
+  if (sun && moon) {
+    patterns.unshift({
+      id: "core-configuration",
+      name: `Dirigir desde ${sun.sign} mientras la emoción responde desde ${moon.sign}`,
+      evidence: [positionEvidence(sun), positionEvidence(moon), ...(ascendant ? [positionEvidence(ascendant)] : [])],
+      mechanism: `La dirección consciente adopta el modo de ${sun.sign}, mientras la regulación emocional responde desde ${moon.sign}${ascendant ? ` y la entrada visible a la experiencia ocurre desde ${ascendant.sign}` : ""}.`,
+      weight: 5,
+    });
+  }
+
+  const fillers = positions.filter((position) => ["Mercurio", "Venus", "Marte", "Saturno"].includes(position.name));
+  for (const position of fillers) {
+    if (patterns.length >= 5) break;
+    patterns.push({
+      id: `placement-${position.name.toLowerCase()}`,
+      name: `${planetFunctions[position.name] ?? position.name} expresada desde ${position.sign}`,
+      evidence: [positionEvidence(position)],
+      mechanism: `La función de ${planetFunctions[position.name] ?? position.name} opera al modo de ${position.sign}${position.house ? ` en el ámbito de ${houseAreas[position.house]}` : ""}.`,
+      weight: 2,
+    });
+  }
+
+  return chartPatternModelSchema.parse({ patterns: patterns.slice(0, 5) });
+}
+
 function validateManifestation(
   chartPatterns: z.infer<typeof chartPatternModelSchema>,
   manifestation: z.infer<typeof manifestationModelSchema>,
@@ -234,19 +340,7 @@ async function generateWithOpenAI(input: ReportInput) {
   const client = new OpenAI({ apiKey });
   const model = process.env.OPENAI_MODEL || "gpt-5.5-pro-2026-04-23";
 
-  const patternResponse = await client.responses.parse({
-    model,
-    store: false,
-    instructions: chartPatternPrompt,
-    input: JSON.stringify(input.chart),
-    reasoning: { effort: "medium" },
-    text: {
-      verbosity: "medium",
-      format: zodTextFormat(chartPatternModelSchema, "chart_patterns"),
-    },
-  });
-  if (!patternResponse.output_parsed) throw new Error("OpenAI no pudo extraer los patrones de la carta natal.");
-  const chartPatterns = chartPatternModelSchema.parse(patternResponse.output_parsed);
+  const chartPatterns = buildChartPatterns(input.chart);
 
   const finalResponse = await client.responses.parse({
     model,
