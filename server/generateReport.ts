@@ -227,7 +227,7 @@ async function generateWithOpenAI(input: ReportInput) {
   if (!apiKey) throw new Error("OPENAI_API_KEY no está configurada.");
 
   const client = new OpenAI({ apiKey });
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_MODEL || "gpt-5.5-pro-2026-04-23";
 
   const patternResponse = await client.responses.parse({
     model,
