@@ -59,7 +59,11 @@ app.post("/api/report", async (request, response) => {
     if (answers.some((item) => !item.question || !item.answer || !Array.isArray(item.signals))) {
       return response.status(400).json({ error: "Las respuestas no son válidas." });
     }
-    if ((process.env.REPORT_PROVIDER || "rules").toLowerCase() === "openai" && !process.env.OPENAI_API_KEY) {
+    const provider = (process.env.REPORT_PROVIDER || "rules").toLowerCase();
+    if (provider === "openai" && !process.env.OPENAI_API_KEY) {
+      return response.status(503).json({ error: "La generación con IA todavía no está configurada." });
+    }
+    if (provider === "gemini" && !process.env.GEMINI_API_KEY) {
       return response.status(503).json({ error: "La generación con IA todavía no está configurada." });
     }
 
@@ -81,12 +85,12 @@ app.post("/api/report", async (request, response) => {
     console.error("Report generation failed", error instanceof Error ? error.message : error);
     if (upstreamStatus === 429) {
       return response.status(429).json({
-        error: "La cuenta de OpenAI no tiene cuota disponible. Revisa el saldo o la facturación.",
+        error: "El servicio de generación no tiene cuota disponible en este momento.",
       });
     }
     if (upstreamStatus === 401) {
       return response.status(503).json({
-        error: "La credencial de OpenAI no es válida o fue revocada.",
+        error: "La credencial del servicio de generación no es válida o fue revocada.",
       });
     }
     response.status(502).json({ error: "No pudimos generar la devolución. Intenta nuevamente." });

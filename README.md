@@ -18,7 +18,10 @@ Crear un archivo `.env` local, excluido de Git, con:
 ```env
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.5
-REPORT_PROVIDER=rules
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+REPORT_PROVIDER=gemini
+REPORT_FALLBACK=rules
 PORT=3001
 ```
 
@@ -44,10 +47,10 @@ Referencias:
 - Conversión de hora local a UTC.
 - Cálculo de planetas, casas, Ascendente, Medio Cielo y aspectos.
 - Flujo de preguntas configurable.
-- Generación de informe estructurado mediante OpenAI Responses API.
-- Generación local determinista disponible con `REPORT_PROVIDER=rules`.
+- Generación de informe estructurado mediante Gemini.
+- Generación local determinista usada como respaldo con `REPORT_FALLBACK=rules`.
 - Prompt y conocimiento astrológico separados del código de interfaz.
-- Envío a OpenAI limitado a posiciones, aspectos y respuestas; no se envían fecha, hora ni ubicación.
+- Envío al proveedor de IA limitado a posiciones, aspectos y respuestas; no se envían fecha, hora ni ubicación.
 
 ## Próxima fase
 
@@ -55,12 +58,15 @@ Reemplazar las preguntas provisionales y ajustar el contrato editorial definitiv
 
 ## Despliegue de pre-prueba
 
-El proyecto incluye `vercel.json` y una entrada serverless en `api/index.ts`. Para esta fase se despliega con `REPORT_PROVIDER=rules`; no necesita una clave de OpenAI.
+El proyecto incluye `vercel.json` y una entrada serverless en `api/index.ts`. Para esta fase se despliega con Gemini y mantiene el motor local como respaldo.
 
 Variable recomendada en Vercel:
 
 ```env
-REPORT_PROVIDER=rules
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+REPORT_PROVIDER=gemini
+REPORT_FALLBACK=rules
 ```
 
 El repositorio no debe incluir `.env`. Antes de un lanzamiento público o comercial debe repetirse la revisión de licencia de Swiss Ephemeris indicada arriba.

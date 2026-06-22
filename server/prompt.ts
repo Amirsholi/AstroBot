@@ -85,7 +85,14 @@ Evitar:
 
 Longitud:
 
-Entre 600 y 900 palabras.
+El campo de lectura debe contener entre 650 y 850 palabras.
+
+Título:
+
+* breve y evocador
+* entre 4 y 8 palabras
+* escrito como una frase, sin mayúscula en cada palabra
+* sin dos puntos ni lenguaje astrológico
 
 Final:
 

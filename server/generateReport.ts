@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { reportPrompt } from "./prompt.js";
@@ -28,10 +29,57 @@ export type ReportInput = {
   answers: Array<{ question: string; answer: string; signals: string[] }>;
 };
 
+const reportJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string" },
+    reading: { type: "string" },
+    reflection: { type: "string" },
+    question: { type: "string" },
+  },
+  required: ["title", "reading", "reflection", "question"],
+};
+
+const disclaimer = "Lectura simbólica para la reflexión personal. No constituye orientación médica ni psicológica.";
+
+async function generateWithGemini(input: ReportInput) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY no está configurada.");
+
+  const client = new GoogleGenAI({ apiKey });
+  const response = await client.models.generateContent({
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    contents: JSON.stringify(input),
+    config: {
+      systemInstruction: reportPrompt,
+      responseMimeType: "application/json",
+      responseJsonSchema: reportJsonSchema,
+      maxOutputTokens: 8192,
+      temperature: 0.8,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+
+  if (!response.text) throw new Error("Gemini no devolvió un informe válido.");
+  return reportSchema.parse({ ...JSON.parse(response.text), disclaimer });
+}
+
 export async function generatePersonalReport(input: ReportInput): Promise<PersonalReport> {
   const provider = (process.env.REPORT_PROVIDER || "rules").toLowerCase();
   if (provider === "rules") {
     return generateRuleBasedReport(input);
+  }
+  if (provider === "gemini") {
+    try {
+      return await generateWithGemini(input);
+    } catch (error) {
+      if ((process.env.REPORT_FALLBACK || "rules").toLowerCase() === "rules") {
+        console.error("Gemini report failed; using local fallback", error instanceof Error ? error.message : error);
+        return generateRuleBasedReport(input);
+      }
+      throw error;
+    }
   }
   if (provider !== "openai") {
     throw new Error(`REPORT_PROVIDER no soportado: ${provider}`);
@@ -60,6 +108,6 @@ export async function generatePersonalReport(input: ReportInput): Promise<Person
   }
   return reportSchema.parse({
     ...response.output_parsed,
-    disclaimer: "Lectura simbólica para la reflexión personal. No constituye orientación médica ni psicológica.",
+    disclaimer,
   });
 }
