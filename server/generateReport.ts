@@ -338,22 +338,26 @@ async function generateWithOpenAI(input: ReportInput) {
   if (!apiKey) throw new Error("OPENAI_API_KEY no está configurada.");
 
   const client = new OpenAI({ apiKey });
-  const model = process.env.OPENAI_MODEL || "gpt-5.5-pro-2026-04-23";
+  const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+  const requestedOutputTokens = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1400);
+  const maxOutputTokens = Number.isFinite(requestedOutputTokens)
+    ? Math.min(Math.max(Math.trunc(requestedOutputTokens), 800), 1800)
+    : 1400;
 
   const chartPatterns = buildChartPatterns(input.chart);
 
   const finalResponse = await client.responses.parse({
     model,
     store: false,
-    max_output_tokens: 5000,
+    max_output_tokens: maxOutputTokens,
     instructions: contextualizedReportPrompt,
     input: JSON.stringify({
       patrones_astrologicos: chartPatterns,
       respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
     }),
-    reasoning: { effort: "medium" },
+    reasoning: { effort: "minimal" },
     text: {
-      verbosity: "medium",
+      verbosity: "low",
       format: zodTextFormat(contextualizedReportSchema, "contextualized_report"),
     },
   });
