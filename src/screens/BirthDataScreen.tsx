@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { motion } from "motion/react";
 import { CalendarBlank, Clock, MapPin } from "@phosphor-icons/react";
 import { searchPlaces } from "../utils/api";
-import type { BirthData, Period, PlaceSuggestion } from "../types";
+import type { BirthData, Gender, PlaceSuggestion } from "../types";
 
 type BirthDataScreenProps = {
   onSubmit: (data: BirthData) => Promise<void>;
@@ -24,7 +24,7 @@ function formatTime(value: string) {
 export function BirthDataScreen({ onSubmit }: BirthDataScreenProps) {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
-  const [period, setPeriod] = useState<Period>("AM");
+  const [gender, setGender] = useState<Gender>("feminine");
   const [placeQuery, setPlaceQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState<PlaceSuggestion | null>(null);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -72,7 +72,7 @@ export function BirthDataScreen({ onSubmit }: BirthDataScreenProps) {
       await onSubmit({
         date,
         time: time || undefined,
-        period: time ? period : undefined,
+        gender,
         place: selectedPlace,
       });
     } catch (submitError) {
@@ -132,24 +132,27 @@ export function BirthDataScreen({ onSubmit }: BirthDataScreenProps) {
                 aria-label="Hora de nacimiento"
                 inputMode="numeric"
                 maxLength={5}
-                pattern="(0[1-9]|1[0-2]):[0-5][0-9]"
+                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
                 placeholder="HH:MM"
                 type="text"
                 value={time}
                 onChange={(event) => setTime(formatTime(event.target.value))}
               />
             </label>
-            <div className="period-toggle" aria-label="Período horario" role="group">
-              {(["AM", "PM"] as const).map((option) => (
+            <div className="gender-toggle" aria-label="Redaccion gramatical" role="group">
+              {([
+                ["feminine", "♀"],
+                ["masculine", "♂"],
+              ] as const).map(([option, symbol]) => (
                 <button
-                  aria-pressed={period === option}
-                  className={period === option ? "period-toggle__active" : ""}
-                  disabled={!time}
+                  aria-label={option === "feminine" ? "Redaccion femenina" : "Redaccion masculina"}
+                  aria-pressed={gender === option}
+                  className={gender === option ? "gender-toggle__active" : ""}
                   key={option}
                   type="button"
-                  onClick={() => setPeriod(option)}
+                  onClick={() => setGender(option)}
                 >
-                  {option}
+                  {symbol}
                 </button>
               ))}
             </div>

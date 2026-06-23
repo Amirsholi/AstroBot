@@ -42,8 +42,8 @@ export function ReportScreen({ report, onRestart }: ReportScreenProps) {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.8 + paragraphs.length * 0.24, duration: 1.2 }}
       >
-        <p>{report.reflection}</p>
-        <blockquote>{report.question}</blockquote>
+        <p>{report.virtues}</p>
+        <blockquote>{report.closing}</blockquote>
       </motion.section>
 
       <footer className="report-footer">

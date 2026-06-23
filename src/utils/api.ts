@@ -1,5 +1,5 @@
 import { questions } from "../data/questions";
-import type { Answer, BirthData, NatalChart, PersonalReport, PlaceSuggestion } from "../types";
+import type { Answer, BirthData, Gender, NatalChart, PersonalReport, PlaceSuggestion } from "../types";
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -26,18 +26,18 @@ export async function createNatalChart(birthData: BirthData) {
   return parseResponse<NatalChart>(response);
 }
 
-export async function createPersonalReport(chart: NatalChart, answers: Answer[]) {
+export async function createPersonalReport(chart: NatalChart, answers: Answer[], gender: Gender) {
   const answerPayload = answers.map((answer) => {
     const question = questions.find((item) => item.id === answer.questionId);
     const option = question?.options.find((item) => item.id === answer.optionId);
     if (!question || !option) throw new Error("Una respuesta no coincide con el cuestionario.");
-    return { question: question.prompt, answer: option.label, signals: option.signals };
+    return { question: question.prompt, answer: option.label, interpretation: option.interpretation };
   });
 
   const response = await fetch("/api/report", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chart, answers: answerPayload }),
+    body: JSON.stringify({ chart, answers: answerPayload, gender }),
   });
   return parseResponse<PersonalReport>(response);
 }

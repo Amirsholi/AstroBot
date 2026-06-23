@@ -1,4 +1,5 @@
 export type Period = "AM" | "PM";
+export type Gender = "masculine" | "feminine";
 
 export type PlaceSuggestion = {
   id: number;
@@ -15,6 +16,7 @@ export type BirthData = {
   date: string;
   time?: string;
   period?: Period;
+  gender: Gender;
   place: PlaceSuggestion;
 };
 
@@ -53,8 +55,8 @@ export type NatalChart = {
 export type PersonalReport = {
   title: string;
   reading: string;
-  reflection: string;
-  question: string;
+  virtues: string;
+  closing: string;
   disclaimer: string;
 };
 

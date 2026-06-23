@@ -85,8 +85,11 @@ function parseLocalDateTime(request: ChartRequest) {
 
   if (request.time) {
     const [rawHour, rawMinute] = request.time.split(":").map(Number);
-    hour = rawHour % 12;
-    if (request.period === "PM") hour += 12;
+    hour = rawHour;
+    if (request.period) {
+      hour = rawHour % 12;
+      if (request.period === "PM") hour += 12;
+    }
     minute = rawMinute;
   }
 

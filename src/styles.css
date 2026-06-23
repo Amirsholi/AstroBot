@@ -174,7 +174,7 @@ label:has(input:focus-visible) {
   gap: 10px;
 }
 
-.period-toggle {
+.gender-toggle {
   min-height: 54px;
   padding: 4px;
   display: grid;
@@ -184,18 +184,17 @@ label:has(input:focus-visible) {
   background: rgba(0, 0, 0, 0.18);
 }
 
-.period-toggle button {
+.gender-toggle button {
   border: 0;
   color: #71716f;
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: 17px;
+  line-height: 1;
   transition: color 400ms ease, background-color 400ms ease;
 }
 
-.period-toggle button:disabled { cursor: default; opacity: 0.38; }
-.period-toggle .period-toggle__active:not(:disabled) { color: var(--ivory); background: rgba(255, 255, 255, 0.07); }
+.gender-toggle .gender-toggle__active { color: var(--ivory); background: rgba(255, 255, 255, 0.07); }
 .place-field { position: relative; }
 
 .field-status {

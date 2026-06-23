@@ -34,7 +34,7 @@ export default function App() {
     }
     try {
       const [nextReport] = await Promise.all([
-        createPersonalReport(chart, nextAnswers),
+        createPersonalReport(chart, nextAnswers, birthData?.gender ?? "feminine"),
         new Promise<void>((resolve) => window.setTimeout(resolve, 2800)),
       ]);
       setReport(nextReport);

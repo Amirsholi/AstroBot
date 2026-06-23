@@ -1,15 +1,13 @@
 import OpenAI from "openai";
-import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
-import { chartPatternPrompt, contextualizedReportPrompt, manifestationPrompt, reportPrompt } from "./prompt.js";
-import { generateRuleBasedReport } from "./fallbackReport.js";
+import { contextualizedReportPrompt } from "./prompt.js";
 
 const modelReportSchema = z.object({
   title: z.string().min(4),
-  reading: z.string().min(1200),
-  reflection: z.string().min(20),
-  question: z.string().min(10),
+  reading: z.string().min(900),
+  virtues: z.string().min(120),
+  closing: z.string().min(20),
 });
 
 export const reportSchema = modelReportSchema.extend({
@@ -18,378 +16,298 @@ export const reportSchema = modelReportSchema.extend({
 
 export type PersonalReport = z.infer<typeof reportSchema>;
 
+type ChartPosition = {
+  name: string;
+  longitude: number;
+  sign: string;
+  degree: number;
+  house: number | null;
+  retrograde: boolean;
+};
+
+type ChartAspect = {
+  from: string;
+  to: string;
+  type: string;
+  angle: number;
+  orb: number;
+};
+
+type AnswerInterpretation = {
+  lifeAxis: string;
+  intensity: 1 | 2 | 3 | 4;
+  mode: "confirm" | "activate" | "tension" | "contrast";
+  themes: string[];
+  astrologyTargets: {
+    planets?: string[];
+    houses?: number[];
+    signs?: string[];
+    aspects?: string[];
+    elements?: string[];
+    modalities?: string[];
+  };
+};
+
 export type ReportInput = {
   chart: {
     accuracy: string;
     planets: unknown[];
     ascendant: unknown | null;
     midheaven: unknown | null;
+    houses?: unknown[] | null;
     aspects: unknown[];
   };
-  answers: Array<{ question: string; answer: string; signals: string[] }>;
+  gender: "masculine" | "feminine";
+  answers: Array<{ question: string; answer: string; interpretation: AnswerInterpretation }>;
 };
 
-const reportJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    title: { type: "string" },
-    reading: { type: "string" },
-    reflection: { type: "string" },
-    question: { type: "string" },
-  },
-  required: ["title", "reading", "reflection", "question"],
+const disclaimer = "Lectura simbolica para la reflexion personal. No constituye orientacion medica ni psicologica.";
+
+const signMeta: Record<string, { element: string; modality: string; expression: string }> = {
+  Aries: { element: "fuego", modality: "cardinal", expression: "iniciar, afirmar y entrar en movimiento" },
+  Tauro: { element: "tierra", modality: "fixed", expression: "estabilizar, sostener y comprobar valor" },
+  Geminis: { element: "aire", modality: "mutable", expression: "nombrar, relacionar y abrir posibilidades mentales" },
+  Géminis: { element: "aire", modality: "mutable", expression: "nombrar, relacionar y abrir posibilidades mentales" },
+  Cancer: { element: "agua", modality: "cardinal", expression: "proteger, recordar y elaborar pertenencia" },
+  Cáncer: { element: "agua", modality: "cardinal", expression: "proteger, recordar y elaborar pertenencia" },
+  Leo: { element: "fuego", modality: "fixed", expression: "expresar, irradiar y reclamar lugar propio" },
+  Virgo: { element: "tierra", modality: "mutable", expression: "discernir, ajustar y volver util lo percibido" },
+  Libra: { element: "aire", modality: "cardinal", expression: "vincular, contrastar y buscar reciprocidad" },
+  Escorpio: { element: "agua", modality: "fixed", expression: "profundizar, intensificar y transformar" },
+  Sagitario: { element: "fuego", modality: "mutable", expression: "ampliar, explorar y encontrar sentido" },
+  Capricornio: { element: "tierra", modality: "cardinal", expression: "estructurar, resistir y construir a largo plazo" },
+  Acuario: { element: "aire", modality: "fixed", expression: "diferenciarse, renovar y preservar autonomia" },
+  Piscis: { element: "agua", modality: "mutable", expression: "sensibilizar, imaginar y percibir limites difusos" },
 };
 
-const chartPatternModelSchema = z.object({
-  patterns: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    evidence: z.array(z.string()),
-    mechanism: z.string(),
-    weight: z.number().int().min(1).max(5),
-  })).length(5),
-});
-
-const manifestationItemSchema = z.object({
-  patternId: z.string(),
-  manifestation: z.string(),
-});
-
-const manifestationModelSchema = z.object({
-  confirmed: z.array(manifestationItemSchema),
-  active: z.array(manifestationItemSchema),
-  tension: z.array(manifestationItemSchema),
-  notObserved: z.array(z.string()),
-});
-
-const contextualizedReportSchema = z.object({
-  manifestation: manifestationModelSchema,
-  report: modelReportSchema,
-});
-
-const chartPatternJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    patterns: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          id: { type: "string" },
-          name: { type: "string" },
-          evidence: { type: "array", items: { type: "string" } },
-          mechanism: { type: "string" },
-          weight: { type: "integer", minimum: 1, maximum: 5 },
-        },
-        required: ["id", "name", "evidence", "mechanism", "weight"],
-      },
-    },
-  },
-  required: ["patterns"],
+const planetFunction: Record<string, string> = {
+  Sol: "centro consciente, vitalidad y direccion",
+  Luna: "necesidad emocional, memoria afectiva y regulacion",
+  Ascendente: "forma de entrar en la experiencia",
+  "Medio Cielo": "direccion publica, vocacion y contribucion",
+  Mercurio: "percepcion, pensamiento y comunicacion",
+  Venus: "valoracion, vinculo y manera de recibir afecto",
+  Marte: "deseo, accion y afirmacion",
+  Jupiter: "expansion, confianza y sentido",
+  Júpiter: "expansion, confianza y sentido",
+  Saturno: "limite, responsabilidad, temor y maduracion",
+  Urano: "independencia, ruptura y cambio",
+  Neptuno: "sensibilidad, imaginacion e idealizacion",
+  Pluton: "intensidad, poder interno y transformacion",
+  Plutón: "intensidad, poder interno y transformacion",
 };
 
-const manifestationJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    confirmed: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: { patternId: { type: "string" }, manifestation: { type: "string" } },
-        required: ["patternId", "manifestation"],
-      },
-    },
-    active: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: { patternId: { type: "string" }, manifestation: { type: "string" } },
-        required: ["patternId", "manifestation"],
-      },
-    },
-    tension: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: { patternId: { type: "string" }, manifestation: { type: "string" } },
-        required: ["patternId", "manifestation"],
-      },
-    },
-    notObserved: { type: "array", items: { type: "string" } },
-  },
-  required: ["confirmed", "active", "tension", "notObserved"],
+const houseArea: Record<number, string> = {
+  1: "presencia, iniciativa y forma de entrar en la vida",
+  2: "recursos, sosten, valores y relacion con lo propio",
+  3: "lenguaje, aprendizaje cercano y conexion de informacion",
+  4: "raices, intimidad, pertenencia y base emocional",
+  5: "creatividad, deseo de expresion y placer",
+  6: "habitos, cuidado cotidiano, trabajo y ajuste",
+  7: "encuentro con el otro, acuerdos y proyecciones vinculares",
+  8: "intimidad profunda, recursos compartidos, perdida y transformacion",
+  9: "creencias, vision de mundo, exploracion y sentido",
+  10: "direccion publica, autoridad, contribucion y vocacion",
+  11: "comunidad, amistades, ideales y futuro",
+  12: "retiro, vida psiquica no visible, entrega y cierres",
 };
 
-const disclaimer = "Lectura simbólica para la reflexión personal. No constituye orientación médica ni psicológica.";
+function normalize(longitude: number) {
+  return ((longitude % 360) + 360) % 360;
+}
 
-const planetFunctions: Record<string, string> = {
-  Sol: "dirección consciente",
-  Luna: "regulación emocional",
-  Mercurio: "pensamiento y palabra",
-  Venus: "vínculo y valoración",
-  Marte: "deseo y acción",
-  Júpiter: "expansión y significado",
-  Saturno: "estructura y límite",
-  Urano: "cambio e independencia",
-  Neptuno: "sensibilidad e imaginación",
-  Plutón: "intensidad y transformación",
-};
+function distanceDegrees(a: number, b: number) {
+  const raw = Math.abs(normalize(a) - normalize(b));
+  return Math.min(raw, 360 - raw);
+}
 
-const houseAreas: Record<number, string> = {
-  1: "presencia e iniciativa", 2: "recursos y valores", 3: "lenguaje y aprendizaje",
-  4: "intimidad y pertenencia", 5: "creatividad y expresión", 6: "hábitos y trabajo cotidiano",
-  7: "vínculos y acuerdos", 8: "intimidad profunda y transformación", 9: "visión y creencias",
-  10: "dirección pública y vocación", 11: "comunidad y futuro", 12: "vida interior y cierres",
-};
-
-type ParsedPosition = { name: string; sign: string; house: number | null };
-type ParsedAspect = { from: string; to: string; type: string; orb: number };
-
-function parsePosition(value: unknown): ParsedPosition | null {
+function parsePosition(value: unknown): ChartPosition | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;
-  if (typeof item.name !== "string" || typeof item.sign !== "string") return null;
-  return { name: item.name, sign: item.sign, house: typeof item.house === "number" ? item.house : null };
-}
-
-function parseAspect(value: unknown): ParsedAspect | null {
-  if (!value || typeof value !== "object") return null;
-  const item = value as Record<string, unknown>;
-  if (typeof item.from !== "string" || typeof item.to !== "string" || typeof item.type !== "string" || typeof item.orb !== "number") return null;
-  return { from: item.from, to: item.to, type: item.type, orb: item.orb };
-}
-
-function positionEvidence(position: ParsedPosition) {
-  return `${position.name} en ${position.sign}${position.house ? `, casa ${position.house}` : ""}`;
-}
-
-function buildChartPatterns(chart: ReportInput["chart"]) {
-  const positions = chart.planets.map(parsePosition).filter((item): item is ParsedPosition => Boolean(item));
-  const byName = new Map(positions.map((position) => [position.name, position]));
-  const relevance = (name: string) => name === "Sol" || name === "Luna" ? 4 : ["Mercurio", "Venus", "Marte"].includes(name) ? 3 : 1;
-  const aspectDynamics: Record<string, string> = {
-    conjunción: "se fusiona con",
-    oposición: "oscila frente a",
-    cuadratura: "entra en fricción con",
-    trígono: "fluye junto a",
-    sextil: "encuentra una vía de cooperación con",
+  if (
+    typeof item.name !== "string" ||
+    typeof item.longitude !== "number" ||
+    typeof item.sign !== "string" ||
+    typeof item.degree !== "number"
+  ) return null;
+  return {
+    name: item.name,
+    longitude: item.longitude,
+    sign: item.sign,
+    degree: item.degree,
+    house: typeof item.house === "number" ? item.house : null,
+    retrograde: item.retrograde === true,
   };
+}
 
-  const aspects = chart.aspects.map(parseAspect).filter((item): item is ParsedAspect => Boolean(item))
-    .sort((left, right) => {
-      const score = (aspect: ParsedAspect) => relevance(aspect.from) + relevance(aspect.to) + Math.max(0, 8 - aspect.orb);
-      return score(right) - score(left);
-    })
-    .slice(0, 4);
+function parseAspect(value: unknown): ChartAspect | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if (
+    typeof item.from !== "string" ||
+    typeof item.to !== "string" ||
+    typeof item.type !== "string" ||
+    typeof item.angle !== "number" ||
+    typeof item.orb !== "number"
+  ) return null;
+  return { from: item.from, to: item.to, type: item.type, angle: item.angle, orb: item.orb };
+}
 
-  const patterns = aspects.flatMap((aspect, index) => {
-    const from = byName.get(aspect.from);
-    const to = byName.get(aspect.to);
-    if (!from || !to) return [];
-    const fromFunction = planetFunctions[from.name] ?? from.name;
-    const toFunction = planetFunctions[to.name] ?? to.name;
-    const dynamic = aspectDynamics[aspect.type] ?? "se relaciona con";
-    const fromArea = from.house ? houseAreas[from.house] : null;
-    const toArea = to.house ? houseAreas[to.house] : null;
-    return [{
-      id: `aspect-${index + 1}`,
-      name: `${fromFunction} ${dynamic} ${toFunction}`,
-      evidence: [positionEvidence(from), positionEvidence(to), `${aspect.type} ${from.name}-${to.name}, orbe ${aspect.orb}°`],
-      mechanism: `La ${fromFunction}, expresada desde ${from.sign}${fromArea ? ` en ${fromArea}` : ""}, ${dynamic} la ${toFunction}, expresada desde ${to.sign}${toArea ? ` en ${toArea}` : ""}.`,
-      weight: Math.max(2, 5 - index),
-    }];
+function positionEvidence(position: ChartPosition) {
+  const house = position.house ? `, casa ${position.house}` : "";
+  const retrograde = position.retrograde ? ", retrogrado" : "";
+  return `${position.name} en ${position.sign} ${position.degree.toFixed(2)}°${house}${retrograde}`;
+}
+
+function aspectWeight(aspect: ChartAspect) {
+  const personal = ["Sol", "Luna", "Mercurio", "Venus", "Marte"];
+  const angles = ["Ascendente", "Medio Cielo"];
+  const relevance = (name: string) => name === "Sol" || name === "Luna" ? 5 : personal.includes(name) ? 4 : angles.includes(name) ? 4 : 2;
+  const tension = aspect.type === "cuadratura" || aspect.type === "oposicion" || aspect.type === "oposición" ? 2 : 0;
+  return relevance(aspect.from) + relevance(aspect.to) + Math.max(0, 8 - aspect.orb) + tension;
+}
+
+function countBy<T extends string | number>(values: T[]) {
+  const counts = new Map<T, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([value, count]) => ({ value, count }));
+}
+
+function buildAstrologicalProfile(chart: ReportInput["chart"]) {
+  const planets = chart.planets.map(parsePosition).filter((item): item is ChartPosition => Boolean(item));
+  const ascendant = parsePosition(chart.ascendant);
+  const midheaven = parsePosition(chart.midheaven);
+  const allPositions = [...planets, ...(ascendant ? [ascendant] : []), ...(midheaven ? [midheaven] : [])];
+  const aspects = chart.aspects.map(parseAspect).filter((item): item is ChartAspect => Boolean(item));
+
+  const byName = new Map(allPositions.map((position) => [position.name, position]));
+  const elements = countBy(planets.map((position) => signMeta[position.sign]?.element).filter((item): item is string => Boolean(item)));
+  const modalities = countBy(planets.map((position) => signMeta[position.sign]?.modality).filter((item): item is string => Boolean(item)));
+  const houseEmphasis = countBy(planets.map((position) => position.house).filter((item): item is number => typeof item === "number"));
+  const retrogrades = planets.filter((position) => position.retrograde).map(positionEvidence);
+
+  const angles = [
+    ascendant ? { name: "Ascendente", longitude: ascendant.longitude } : null,
+    ascendant ? { name: "Descendente", longitude: normalize(ascendant.longitude + 180) } : null,
+    midheaven ? { name: "Medio Cielo", longitude: midheaven.longitude } : null,
+    midheaven ? { name: "Fondo del Cielo", longitude: normalize(midheaven.longitude + 180) } : null,
+  ].filter((item): item is { name: string; longitude: number } => Boolean(item));
+
+  const angularPlanets = planets.flatMap((planet) => {
+    const nearest = angles
+      .map((angle) => ({ angle: angle.name, distance: distanceDegrees(planet.longitude, angle.longitude) }))
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (!nearest || nearest.distance > 8) return [];
+    return [`${positionEvidence(planet)} cerca de ${nearest.angle}, distancia ${nearest.distance.toFixed(2)}°`];
   });
 
-  const sun = byName.get("Sol");
-  const moon = byName.get("Luna");
-  const ascendant = parsePosition(chart.ascendant);
-  if (sun && moon) {
-    patterns.unshift({
-      id: "core-configuration",
-      name: `Dirigir desde ${sun.sign} mientras la emoción responde desde ${moon.sign}`,
-      evidence: [positionEvidence(sun), positionEvidence(moon), ...(ascendant ? [positionEvidence(ascendant)] : [])],
-      mechanism: `La dirección consciente adopta el modo de ${sun.sign}, mientras la regulación emocional responde desde ${moon.sign}${ascendant ? ` y la entrada visible a la experiencia ocurre desde ${ascendant.sign}` : ""}.`,
-      weight: 5,
+  const primaryPositions = ["Sol", "Luna", "Ascendente", "Medio Cielo", "Mercurio", "Venus", "Marte", "Saturno"]
+    .map((name) => byName.get(name))
+    .filter((item): item is ChartPosition => Boolean(item))
+    .map((position) => ({
+      body: position.name,
+      evidence: positionEvidence(position),
+      function: planetFunction[position.name] ?? position.name,
+      signExpression: signMeta[position.sign]?.expression ?? "expresion no clasificada",
+      houseArea: position.house ? houseArea[position.house] : null,
+    }));
+
+  const strongestAspects = aspects
+    .sort((a, b) => aspectWeight(b) - aspectWeight(a))
+    .slice(0, 10)
+    .map((aspect) => {
+      const from = byName.get(aspect.from);
+      const to = byName.get(aspect.to);
+      return {
+        evidence: `${aspect.type} ${aspect.from}-${aspect.to}, orbe ${aspect.orb}°`,
+        dynamic: aspect.type,
+        weight: Number(aspectWeight(aspect).toFixed(2)),
+        from: from ? {
+          body: from.name,
+          function: planetFunction[from.name] ?? from.name,
+          sign: from.sign,
+          house: from.house,
+        } : { body: aspect.from },
+        to: to ? {
+          body: to.name,
+          function: planetFunction[to.name] ?? to.name,
+          sign: to.sign,
+          house: to.house,
+        } : { body: aspect.to },
+      };
     });
-  }
 
-  const fillers = positions.filter((position) => ["Mercurio", "Venus", "Marte", "Saturno"].includes(position.name));
-  for (const position of fillers) {
-    if (patterns.length >= 5) break;
-    patterns.push({
-      id: `placement-${position.name.toLowerCase()}`,
-      name: `${planetFunctions[position.name] ?? position.name} expresada desde ${position.sign}`,
-      evidence: [positionEvidence(position)],
-      mechanism: `La función de ${planetFunctions[position.name] ?? position.name} opera al modo de ${position.sign}${position.house ? ` en el ámbito de ${houseAreas[position.house]}` : ""}.`,
-      weight: 2,
-    });
-  }
+  const repeatedThemes = [
+    ...elements.slice(0, 2).map((item) => `Enfasis de elemento ${item.value}: ${item.count} planetas`),
+    ...modalities.slice(0, 2).map((item) => `Enfasis de modalidad ${item.value}: ${item.count} planetas`),
+    ...houseEmphasis.slice(0, 3).map((item) => `Enfasis de casa ${item.value} (${houseArea[item.value]}): ${item.count} planetas`),
+  ];
 
-  return chartPatternModelSchema.parse({ patterns: patterns.slice(0, 5) });
-}
-
-function validateManifestation(
-  chartPatterns: z.infer<typeof chartPatternModelSchema>,
-  manifestation: z.infer<typeof manifestationModelSchema>,
-) {
-  const patternIds = new Set(chartPatterns.patterns.map((pattern) => pattern.id));
-  const observed = [...manifestation.confirmed, ...manifestation.active, ...manifestation.tension];
-  const referencedIds = [...observed.map((item) => item.patternId), ...manifestation.notObserved];
-
-  if (observed.length > 3) {
-    throw new Error("El contraste dio demasiado peso al cuestionario.");
-  }
-  if (referencedIds.some((id) => !patternIds.has(id))) {
-    throw new Error("El contraste introdujo un tema que no existe en la carta.");
-  }
-  if (new Set(referencedIds).size !== referencedIds.length) {
-    throw new Error("El contraste clasificó un patrón más de una vez.");
-  }
-}
-
-function upstreamStatus(error: unknown) {
-  if (typeof error !== "object" || error === null) return 0;
-  if ("status" in error && typeof error.status === "number") return error.status;
-  if ("error" in error && typeof error.error === "object" && error.error !== null && "code" in error.error) {
-    return Number(error.error.code) || 0;
-  }
-  return 0;
-}
-
-async function retryTemporaryFailure<T>(operation: () => Promise<T>) {
-  try {
-    return await operation();
-  } catch (error) {
-    if (upstreamStatus(error) !== 503) throw error;
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    return operation();
-  }
-}
-
-async function generateWithGemini(input: ReportInput) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY no está configurada.");
-
-  const client = new GoogleGenAI({ apiKey });
-  const patternResponse = await retryTemporaryFailure(() => client.models.generateContent({
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    contents: JSON.stringify(input.chart),
-    config: {
-      systemInstruction: chartPatternPrompt,
-      responseMimeType: "application/json",
-      responseJsonSchema: chartPatternJsonSchema,
-      maxOutputTokens: 4096,
-      temperature: 0.25,
-      thinkingConfig: { thinkingBudget: 1024 },
-    },
-  }));
-  if (!patternResponse.text) throw new Error("Gemini no pudo extraer los patrones de la carta natal.");
-  const chartPatterns = chartPatternModelSchema.parse(JSON.parse(patternResponse.text));
-
-  const manifestationResponse = await retryTemporaryFailure(() => client.models.generateContent({
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    contents: JSON.stringify({
-      patrones_astrologicos: chartPatterns,
-      respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
-    }),
-    config: {
-      systemInstruction: manifestationPrompt,
-      responseMimeType: "application/json",
-      responseJsonSchema: manifestationJsonSchema,
-      maxOutputTokens: 3072,
-      temperature: 0.2,
-      thinkingConfig: { thinkingBudget: 512 },
-    },
-  }));
-  if (!manifestationResponse.text) throw new Error("Gemini no pudo contrastar la carta y las respuestas.");
-  const manifestation = manifestationModelSchema.parse(JSON.parse(manifestationResponse.text));
-  validateManifestation(chartPatterns, manifestation);
-
-  const modelInput = {
-    patrones_astrologicos: chartPatterns,
-    manifestacion_actual: manifestation,
+  return {
+    source: "Swiss Ephemeris natal chart",
+    accuracy: chart.accuracy,
+    instruction: "La carta natal es la fuente principal. Interpreta configuraciones, no posiciones aisladas.",
+    primaryPositions,
+    strongestAspects,
+    repeatedThemes,
+    angularPlanets,
+    retrogrades,
+    fullPlacements: planets.map((position) => ({
+      body: position.name,
+      sign: position.sign,
+      degree: Number(position.degree.toFixed(2)),
+      house: position.house,
+      retrograde: position.retrograde,
+      function: planetFunction[position.name] ?? position.name,
+      signExpression: signMeta[position.sign]?.expression ?? null,
+      houseArea: position.house ? houseArea[position.house] : null,
+    })),
   };
-  const response = await retryTemporaryFailure(() => client.models.generateContent({
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    contents: JSON.stringify(modelInput),
-    config: {
-      systemInstruction: reportPrompt,
-      responseMimeType: "application/json",
-      responseJsonSchema: reportJsonSchema,
-      maxOutputTokens: 8192,
-      temperature: 0.68,
-      thinkingConfig: { thinkingBudget: 1024 },
-    },
-  }));
-
-  if (!response.text) throw new Error("Gemini no devolvió un informe válido.");
-  return reportSchema.parse({ ...JSON.parse(response.text), disclaimer });
 }
 
-async function generateWithOpenAI(input: ReportInput) {
+function buildAnswerContext(answers: ReportInput["answers"]) {
+  return answers.map((answer) => ({
+    lifeAxis: answer.interpretation.lifeAxis,
+    selectedAnswer: answer.answer,
+    intensity: answer.interpretation.intensity,
+    mode: answer.interpretation.mode,
+    themes: answer.interpretation.themes,
+    astrologyTargets: answer.interpretation.astrologyTargets,
+    rule: "Esta respuesta solo puede confirmar, activar, tensar o contrastar temas que ya existan en la carta natal.",
+  }));
+}
+
+export async function generatePersonalReport(input: ReportInput): Promise<PersonalReport> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY no está configurada.");
+  if (!apiKey) throw new Error("OPENAI_API_KEY no esta configurada.");
 
   const client = new OpenAI({ apiKey });
-  const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-  const requestedOutputTokens = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1400);
+  const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+  const requestedOutputTokens = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1600);
   const maxOutputTokens = Number.isFinite(requestedOutputTokens)
-    ? Math.min(Math.max(Math.trunc(requestedOutputTokens), 800), 1800)
-    : 1400;
+    ? Math.min(Math.max(Math.trunc(requestedOutputTokens), 1000), 2200)
+    : 1600;
 
-  const chartPatterns = buildChartPatterns(input.chart);
+  const profile = buildAstrologicalProfile(input.chart);
+  const answerContext = buildAnswerContext(input.answers);
 
-  const finalResponse = await client.responses.parse({
+  const response = await client.responses.parse({
     model,
     store: false,
     max_output_tokens: maxOutputTokens,
     instructions: contextualizedReportPrompt,
     input: JSON.stringify({
-      patrones_astrologicos: chartPatterns,
-      respuestas_personales: input.answers.map(({ question, answer }) => ({ question, answer })),
+      redaccion: input.gender,
+      perfil_astrologico: profile,
+      respuestas_orientadas: answerContext,
     }),
-    reasoning: { effort: "minimal" },
+    reasoning: { effort: "low" },
     text: {
       verbosity: "low",
-      format: zodTextFormat(contextualizedReportSchema, "contextualized_report"),
+      format: zodTextFormat(modelReportSchema, "personal_reading"),
     },
   });
-  if (!finalResponse.output_parsed) throw new Error("OpenAI no devolvió un informe válido.");
-  const finalResult = contextualizedReportSchema.parse(finalResponse.output_parsed);
-  validateManifestation(chartPatterns, finalResult.manifestation);
 
-  return reportSchema.parse({ ...finalResult.report, disclaimer });
-}
-
-export async function generatePersonalReport(input: ReportInput): Promise<PersonalReport> {
-  const provider = (process.env.REPORT_PROVIDER || "rules").toLowerCase();
-  if (provider === "rules") {
-    return generateRuleBasedReport(input);
-  }
-  if (provider === "gemini") {
-    try {
-      return await generateWithGemini(input);
-    } catch (error) {
-      if ((process.env.REPORT_FALLBACK || "rules").toLowerCase() === "rules") {
-        console.error("Gemini report failed; using local fallback", error instanceof Error ? error.message : error);
-        return generateRuleBasedReport(input);
-      }
-      throw error;
-    }
-  }
-  if (provider !== "openai") {
-    throw new Error(`REPORT_PROVIDER no soportado: ${provider}`);
-  }
-  if (process.env.ENABLE_PAID_AI !== "true") {
-    throw new Error("La generación paga está deshabilitada.");
-  }
-
-  return generateWithOpenAI(input);
+  if (!response.output_parsed) throw new Error("OpenAI no devolvio una lectura valida.");
+  return reportSchema.parse({ ...response.output_parsed, disclaimer });
 }
